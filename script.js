@@ -159,11 +159,12 @@
     const localSlot = new Date(future.getTime() - future.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     openModal(`
       <h3 id="modalTitle">${title || (isLive ? "Book a live 1:1" : "Request a jelly")}</h3>
-      <p class="modal-sub">${host ? `with @${host} · ` : ""}${money(price)} ${isLive ? "· 30 min" : "· per question"}</p>
+      <p class="modal-sub">${host ? `with @${host} · ` : ""}${money(price)} ${isLive ? "· 30 min" : "· per question"} · paid to the Office Hours bot</p>
       <form class="checkout-form" data-kind="${kind}" data-host="${host || "maja"}" data-price="${price}">
+        <label>Your Jelly username<input name="asker_username" required autocomplete="username" placeholder="@you"></label>
         ${isLive ? `<label>Choose a time<input name="slot_start" type="datetime-local" value="${localSlot}" required></label>` : ""}
-        <label>${isLive ? "What do you want to get out of it?" : "Your question"}<textarea name="question" maxlength="600" rows="4" required placeholder="Be specific — context gets a better answer."></textarea><small>Up to 600 characters</small></label>
-        <button class="btn btn-block" type="submit">${isLive ? "Confirm and hold " : "Send request and hold "}${money(price)}</button>
+        <label>${isLive ? "What do you want to get out of it?" : "Your question"}<textarea name="question" maxlength="600" rows="4" required placeholder="Be specific — context gets a better answer."></textarea><small>Up to 600 characters. The OH bot messages @${host || "the host"} on Jelly with these details.</small></label>
+        <button class="btn btn-block" type="submit">${isLive ? "Pay OH bot and book " : "Pay OH bot and request "}${money(price)}</button>
         <p class="form-status" role="status" aria-live="polite"></p>
       </form>`);
     const form = document.querySelector(".checkout-form");
@@ -171,15 +172,25 @@
       e.preventDefault();
       const button = form.querySelector("button");
       const status = form.querySelector(".form-status");
-      button.disabled = true; status.textContent = "Securing your payment hold…";
+      button.disabled = true; status.textContent = "Taking payment for the Office Hours bot…";
       try {
-        const payload = { kind: form.dataset.kind, host_username: form.dataset.host, price_cents: Number(form.dataset.price) * 100, question: form.question.value };
+        const payload = {
+          kind: form.dataset.kind,
+          host_username: form.dataset.host,
+          asker_username: form.asker_username.value,
+          price_cents: Number(form.dataset.price) * 100,
+          question: form.question.value,
+        };
         if (isLive) payload.slot_start = form.slot_start.value;
         const response = await fetch("/api/checkout", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) }, body: JSON.stringify(payload) });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "Checkout failed");
         const o = result.order;
-        $("#modalBody").innerHTML = `<h3 id="modalTitle">${isLive ? "Booking confirmed" : "Request submitted"}</h3><p class="modal-sub">Payment is authorized and held until delivery.</p><div class="receipt" tabindex="0">${o.id}\nHOST     @${o.host_username}\nAMOUNT   ${money(o.price_cents / 100)}\nSTATE    ${o.state}\nPAYMENT  ${o.payment.state} · local processor</div><p class="modal-note">This order is stored by the local Office Hours backend.</p>`;
+        const n = o.host_notification || {};
+        const notifyLine = n.status === "failed"
+          ? `NOTIFY   failed · ${n.error || "unknown error"}`
+          : `NOTIFY   ${n.status || "ok"} · ${n.channel || "dry-run"} → @${o.host_username}`;
+        $("#modalBody").innerHTML = `<h3 id="modalTitle">${isLive ? "Booking sent" : "Request sent"}</h3><p class="modal-sub">Paid to the Office Hours bot. ${n.status === "failed" ? "Host notify failed — check server logs." : "The bot messaged the host on Jelly (or recorded a dry-run)."}</p><div class="receipt" tabindex="0">${o.id}\nASKER    @${o.asker_username}\nHOST     @${o.host_username}\nAMOUNT   ${money(o.price_cents / 100)}\nSTATE    ${o.state}\nPAYMENT  ${o.payment.state} · @${o.payment.paid_to}\n${notifyLine}</div><p class="modal-note">Hosts reply on Jelly. Delivery is confirmed back in Office Hours when the answer jelly is posted.</p>`;
       } catch (error) { button.disabled = false; status.textContent = error.message; }
     });
   }

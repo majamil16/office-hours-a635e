@@ -5,11 +5,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { URL } = require("node:url");
+const jellyBot = require("./jelly/bot");
 
 const ROOT = __dirname;
-const PORT = Number(process.env.OH_PORT || 4173);
+const PORT = Number(process.env.PORT || process.env.OH_PORT || 4173);
 const DB_FILE = path.join(ROOT, ".data", "orders.json");
 const MIME = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json; charset=utf-8" };
+const OH_BOT_USERNAME = process.env.JELLY_BOT_USERNAME || "officehours";
 
 function readOrders() {
   try { return JSON.parse(fs.readFileSync(DB_FILE, "utf8")); } catch (e) { return []; }
@@ -39,7 +41,15 @@ function requiredString(value, name, max) {
 }
 
 async function api(req, res, url) {
-  if (req.method === "GET" && url.pathname === "/api/health") return json(res, 200, { ok: true, service: "office-hours", time: new Date().toISOString() });
+  if (req.method === "GET" && url.pathname === "/api/health") {
+    return json(res, 200, {
+      ok: true,
+      service: "office-hours",
+      bot: OH_BOT_USERNAME,
+      notify_mode: jellyBot.config().mode,
+      time: new Date().toISOString(),
+    });
+  }
   if (req.method !== "POST") return json(res, 405, { error: "method_not_allowed" });
 
   const match = url.pathname.match(/^\/api\/(checkout|orders\/([^/]+)\/(accept|deliver))$/);
@@ -50,7 +60,8 @@ async function api(req, res, url) {
     if (match[1] === "checkout") {
       const kind = body.kind === "live" || body.kind === "jelly" ? body.kind : null;
       if (!kind) throw new Error("kind must be live or jelly");
-      const host = requiredString(body.host_username, "host_username", 80);
+      const host = requiredString(body.host_username, "host_username", 80).replace(/^@/, "");
+      const asker = requiredString(body.asker_username, "asker_username", 80).replace(/^@/, "");
       const question = requiredString(body.question, "question", 600);
       const price = Number(body.price_cents);
       if (!Number.isInteger(price) || price < 100 || price > 1_000_000) throw new Error("price_cents must be between 100 and 1000000");
@@ -62,13 +73,39 @@ async function api(req, res, url) {
       const key = req.headers["idempotency-key"];
       const prior = key && orders.find((o) => o.idempotency_key === key);
       if (prior) return json(res, 200, { order: prior, replayed: true });
+
+      // Payment goes to the Office Hours bot account (local stub until wallet/tip wiring).
       const order = {
-        id: id(kind === "live" ? "booking" : "jreq"), kind, host_username: host,
-        question, price_cents: price, currency: "USD", slot_start: slot && slot.toISOString(),
-        payment: { state: "authorized", processor: "local", authorized_at: new Date().toISOString() },
-        state: kind === "live" ? "confirmed" : "submitted", idempotency_key: key || null,
+        id: id(kind === "live" ? "booking" : "jreq"),
+        kind,
+        host_username: host,
+        asker_username: asker,
+        question,
+        price_cents: price,
+        currency: "USD",
+        slot_start: slot && slot.toISOString(),
+        payment: {
+          state: "authorized",
+          processor: "oh_bot_local",
+          paid_to: OH_BOT_USERNAME,
+          authorized_at: new Date().toISOString(),
+        },
+        state: kind === "live" ? "confirmed" : "submitted",
+        host_notification: null,
+        idempotency_key: key || null,
         created_at: new Date().toISOString(),
       };
+
+      try {
+        order.host_notification = await jellyBot.notifyHost(order);
+      } catch (err) {
+        order.host_notification = {
+          status: "failed",
+          error: err.message || String(err),
+          at: new Date().toISOString(),
+        };
+      }
+
       orders.unshift(order); writeOrders(orders);
       return json(res, 201, { order });
     }
@@ -99,4 +136,4 @@ const server = http.createServer(async (req, res) => {
     fs.createReadStream(file).pipe(res);
   });
 });
-server.listen(PORT, "127.0.0.1", () => console.log(`Office Hours running at http://127.0.0.1:${PORT}`));
+server.listen(PORT, "0.0.0.0", () => console.log(`Office Hours running at http://0.0.0.0:${PORT}`));
