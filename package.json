@@ -1,0 +1,5 @@
+{
+  "name": "office-hours",
+  "private": true,
+  "scripts": { "start": "node server.js" }
+}

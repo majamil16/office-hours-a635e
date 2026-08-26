@@ -99,15 +99,19 @@
 
   /* ---- live read, with cache + snapshot fallback ---- */
   async function fetchLive() {
-    const cached = localStorage.getItem(CACHE_KEY);
+    let cached = null;
+    try { cached = localStorage.getItem(CACHE_KEY); } catch (e) { /* storage can be disabled */ }
     if (cached) { try { return { model: JSON.parse(cached), source: "live-cached" }; } catch (e) {} }
 
     for (const base of BASES) {
       try {
+        const timeout = (promise, ms) => Promise.race([
+          promise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error("request timeout")), ms)),
+        ]);
         const reqs = Array.from({ length: PAGES }, (_, i) =>
-          fetch(`${base}?sort_by=date&ascending=false&page=${i + 1}&page_size=${PAGE_SIZE}`, {
-            signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined,
-          }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+          timeout(fetch(`${base}?sort_by=date&ascending=false&page=${i + 1}&page_size=${PAGE_SIZE}`)
+            .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status)))), 8000)
         );
         const pages = await Promise.all(reqs);
         const jellies = pages.flatMap((p) => p.jellies || []);
@@ -115,7 +119,7 @@
         const model = build(jellies);
         model.total_public_jellies = pages[0].total;
         model.endpoint = base;
-        try { localStorage.setItem(CACHE_KEY, JSON.stringify(model)); } catch (e) {}
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify(model)); } catch (e) { /* storage can be disabled */ }
         return { model, source: "live" };
       } catch (e) { /* try next base, then fall back */ }
     }
@@ -139,8 +143,10 @@
   }
 
   function bars(m) {
-    const max = m.topics[0] ? m.topics[0].count : 1;
-    return m.topics.slice(0, 10).map((t, i) => `
+    const topics = Array.isArray(m.topics) ? m.topics : [];
+    const max = topics[0] ? topics[0].count : 1;
+    if (!topics.length) return `<li class="fh-empty">No topic data available right now.</li>`;
+    return topics.slice(0, 10).map((t, i) => `
       <li class="bar-row">
         <span class="bar-name">${esc(t.name)}</span>
         <span class="bar-track"><span class="bar-fill f${i % 5}" style="width:${Math.max(6, (t.count / max) * 100)}%"></span></span>
@@ -150,7 +156,9 @@
   }
 
   function hostCards(m) {
-    return m.hosts.map((h) => `
+    const hosts = Array.isArray(m.hosts) ? m.hosts : [];
+    if (!hosts.length) return `<p class="fh-empty">No host drafts are available in this snapshot.</p>`;
+    return hosts.map((h) => `
       <article class="card host">
         <div class="host-top">
           ${h.pfp_url ? `<img class="host-pfp" src="${esc(h.pfp_url)}" alt="" loading="lazy">`
@@ -181,12 +189,12 @@
   }
 
   function ticker(m) {
-    const items = m.recent.map((j) => `
+    const items = (Array.isArray(m.recent) ? m.recent : []).map((j) => `
       <li class="reel-item" data-play="${esc(j.id)}" data-title="${esc(j.title)}" data-user="${esc(j.username)}" tabindex="0" role="button">
         ${j.thumb ? `<img src="${esc(j.thumb)}" alt="" loading="lazy" onerror="this.remove()">` : ""}
         <div><strong>@${esc(j.username)}</strong><span>${esc(j.title)}</span></div>
       </li>`).join("");
-    return items + items;
+    return items ? items + items : "";
   }
 
   /* ---- play a real jelly in JellyJelly's own embed player ----
@@ -232,16 +240,17 @@
       b.addEventListener("click", () => {
         const h = m.hosts.find((x) => x.username === b.dataset.ask);
         if (!h) return;
+        if (window.OHCheckout) return window.OHCheckout.open("jelly", h.username, h.jelly_price, `Request a jelly from @${h.username}`);
         openModal(`
           <h3 id="modalTitle">Request a jelly from @${esc(h.username)}</h3>
           <ol>
-            <li>Question capped at 500 characters, one topic tag from ${h.topics.map((t) => esc(t)).join(", ")}.</li>
+            <li>Question capped at 600 characters, one topic tag from ${h.topics.map((t) => esc(t)).join(", ")}.</li>
             <li>${money(h.jelly_price)} authorized now, captured when the answer jelly posts.</li>
-            <li>Host has 5 days to answer or the hold is released automatically.</li>
+            <li>Host has 3 days to answer or the hold is released automatically.</li>
             <li>Answer lands as a jelly, linked to the request, visible to you first.</li>
           </ol>
           <div class="receipt" tabindex="0">jelly_request \u00b7 host @${esc(h.username)} \u00b7 ${money(h.jelly_price)} held
- price_snapshot ${money(h.jelly_price)} \u00b7 sla 5d \u00b7 status awaiting_answer
+ price_snapshot ${money(h.jelly_price)} \u00b7 sla 3d \u00b7 status awaiting_answer
  topics ${h.topics.join(" / ")} \u00b7 seeded from ${h.jelly_count} public jellies</div>
           <p class="modal-note">Illustrative. Real requests need auth, payments, and a queue.</p>`);
       });
@@ -250,6 +259,9 @@
 
   async function init() {
     const { model, source } = await fetchLive();
+    model.topics = Array.isArray(model.topics) ? model.topics : [];
+    model.hosts = Array.isArray(model.hosts) ? model.hosts : [];
+    model.recent = Array.isArray(model.recent) ? model.recent : [];
     model.hosts = (model.hosts || []).slice(0, 6);
     $("#fhStatus").innerHTML = statusLine(source, model);
     $("#fhBars").innerHTML = bars(model);

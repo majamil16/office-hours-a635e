@@ -33,6 +33,8 @@
   overflow-wrap:anywhere;line-height:1.7;
 }
 .fh-req b{color:#fff}
+.fh-empty{padding:18px;color:var(--mute-d);font-size:14px;background:var(--ink-soft)}
+.section.dark>.fh-empty{margin-top:22px}
 
 /* topic bars */
 .fh-bars{margin-top:22px;display:grid;gap:1px;border:1px solid var(--line-d2);border-radius:var(--r);overflow:hidden;background:var(--line-d2)}
