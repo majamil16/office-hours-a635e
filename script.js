@@ -201,6 +201,44 @@
   }
   window.OHCheckout = { open: checkout };
 
+  /* ---------- provider account + payment settings ---------- */
+  const authCard = $("#authCard");
+  const settingsCard = $("#settingsCard");
+  const authForm = $("#authForm");
+  const connectionForm = $("#connectionForm");
+  let registering = false;
+  function showProvider(provider) {
+    authCard.hidden = !!provider; settingsCard.hidden = !provider;
+    if (!provider) return;
+    $("#providerIdentity").textContent = `${provider.username} · ${provider.email}`;
+    const connection = (provider.payment_connections || [])[0];
+    $("#connectionSummary").innerHTML = connection ? `<div class="connection-summary"><strong>Connected: ${connection.type}</strong><br>${connection.wallet_address}<br>${connection.amount_lamports.toLocaleString()} lamports per checkout</div>` : "";
+  }
+  async function providerRequest(path, options = {}) {
+    const response = await fetch(path, { ...options, headers: { "content-type": "application/json", ...(options.headers || {}) } });
+    const result = await response.json(); if (!response.ok) throw new Error(result.error || "Request failed"); return result;
+  }
+  $("#registerToggle").addEventListener("click", () => {
+    registering = !registering;
+    authForm.querySelector(".register-only").hidden = !registering;
+    authForm.querySelector("[type=submit]").textContent = registering ? "Create account" : "Log in";
+    $("#registerToggle").textContent = registering ? "I already have an account" : "Create provider account";
+    authForm.password.autocomplete = registering ? "new-password" : "current-password";
+  });
+  authForm.querySelector(".register-only").hidden = true;
+  authForm.addEventListener("submit", async (e) => {
+    e.preventDefault(); const status = authForm.querySelector(".form-status"); status.textContent = "";
+    try { const result = await providerRequest(`/api/auth/${registering ? "register" : "login"}`, { method: "POST", body: JSON.stringify({ email: authForm.email.value, password: authForm.password.value, username: authForm.username.value }) }); showProvider(result.provider); }
+    catch (error) { status.textContent = error.message; }
+  });
+  connectionForm.addEventListener("submit", async (e) => {
+    e.preventDefault(); const status = connectionForm.querySelector(".form-status"); status.textContent = "";
+    try { const result = await providerRequest("/api/providers/me/payment-connections", { method: "POST", body: JSON.stringify({ type: connectionForm.type.value, wallet_address: connectionForm.wallet_address.value, rpc_url: connectionForm.rpc_url.value, amount_lamports: Number(connectionForm.amount_lamports.value) }) }); showProvider(result.provider); status.textContent = "Payment connection saved."; }
+    catch (error) { status.textContent = error.message; }
+  });
+  $("#logoutButton").addEventListener("click", async () => { await providerRequest("/api/auth/logout", { method: "POST", body: "{}" }); showProvider(null); });
+  providerRequest("/api/auth/me", { method: "GET", headers: {} }).then((result) => showProvider(result.provider)).catch(() => {});
+
   /* ---------- demo receipts ---------- */
   document.querySelectorAll("[data-demo]").forEach((b) => {
     b.addEventListener("click", () => {

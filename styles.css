@@ -354,6 +354,13 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border:3px solid #fff
 .checkout-form small{font-size:11px;color:var(--mute-d)}
 .checkout-form button:disabled{cursor:wait;opacity:.55}
 .form-status{min-height:1.4em;color:#9b2c2c;font-size:13px}
+.provider-grid{display:grid;gap:14px;margin-top:36px}
+.provider-form{margin-top:20px;display:grid;gap:14px}
+.provider-form label{display:grid;gap:7px;font-size:13px;color:var(--mute)}
+.provider-form input,.provider-form select{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fff;color:var(--ink);font:inherit;font-size:15px}
+.provider-heading{display:flex;align-items:start;justify-content:space-between;gap:15px}
+.connection-summary{margin-top:18px;padding:14px;border:1px solid var(--line);border-radius:10px;font-size:13px;color:var(--mute)}
+@media (min-width:700px){.provider-grid{grid-template-columns:1fr 1fr}}
 
 /* ---------- responsive ---------- */
 @media (min-width:700px){
