@@ -179,11 +179,65 @@
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "Checkout failed");
         const o = result.order;
+        if (o.payment.state === "awaiting_payment") {
+          $("#modalBody").innerHTML = `<h3 id="modalTitle">Pay on Jelly to continue</h3><p class="modal-sub">Send exactly ${o.payment.amount_lamports / 1e9} SOL to the Office Hours wallet, then paste the finalized transaction signature.</p><div class="receipt" tabindex="0">RECIPIENT ${o.payment.recipient}\nAMOUNT    ${o.payment.amount_lamports / 1e9} SOL\nNETWORK   Solana · finalized</div><form class="payment-form checkout-form"><label>Transaction signature<input name="signature" required autocomplete="off" placeholder="Paste the Solana signature"></label><button class="btn btn-block" type="submit">Verify Jelly payment</button><p class="form-status" role="status" aria-live="polite"></p></form>`;
+          const paymentForm = document.querySelector(".payment-form");
+          paymentForm.addEventListener("submit", async (paymentEvent) => {
+            paymentEvent.preventDefault();
+            const submit = paymentForm.querySelector("button"); const message = paymentForm.querySelector(".form-status");
+            submit.disabled = true; message.textContent = "Waiting for finalized transaction…";
+            try {
+              const verify = await fetch(`/api/orders/${encodeURIComponent(o.id)}/payment`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ signature: paymentForm.signature.value.trim() }) });
+              const verified = await verify.json();
+              if (!verify.ok) throw new Error(verified.error || "Payment verification failed");
+              $("#modalBody").innerHTML = `<h3 id="modalTitle">Payment confirmed</h3><p class="modal-sub">Your ${isLive ? "booking" : "request"} is now active.</p><div class="receipt" tabindex="0">${verified.order.id}\nSTATE    ${verified.order.state}\nPAYMENT  paid · Jelly · ${verified.order.payment.signature}</div>`;
+            } catch (error) { submit.disabled = false; message.textContent = error.message; }
+          });
+          return;
+        }
         $("#modalBody").innerHTML = `<h3 id="modalTitle">${isLive ? "Booking confirmed" : "Request submitted"}</h3><p class="modal-sub">Payment is authorized and held until delivery.</p><div class="receipt" tabindex="0">${o.id}\nHOST     @${o.host_username}\nAMOUNT   ${money(o.price_cents / 100)}\nSTATE    ${o.state}\nPAYMENT  ${o.payment.state} · local processor</div><p class="modal-note">This order is stored by the local Office Hours backend.</p>`;
       } catch (error) { button.disabled = false; status.textContent = error.message; }
     });
   }
   window.OHCheckout = { open: checkout };
+
+  /* ---------- provider account + payment settings ---------- */
+  const authCard = $("#authCard");
+  const settingsCard = $("#settingsCard");
+  const authForm = $("#authForm");
+  const connectionForm = $("#connectionForm");
+  let registering = false;
+  function showProvider(provider) {
+    authCard.hidden = !!provider; settingsCard.hidden = !provider;
+    if (!provider) return;
+    $("#providerIdentity").textContent = `${provider.username} · ${provider.email}`;
+    const connection = (provider.payment_connections || [])[0];
+    $("#connectionSummary").innerHTML = connection ? `<div class="connection-summary"><strong>Connected: ${connection.type}</strong><br>${connection.wallet_address}<br>${connection.amount_lamports.toLocaleString()} lamports per checkout</div>` : "";
+  }
+  async function providerRequest(path, options = {}) {
+    const response = await fetch(path, { ...options, headers: { "content-type": "application/json", ...(options.headers || {}) } });
+    const result = await response.json(); if (!response.ok) throw new Error(result.error || "Request failed"); return result;
+  }
+  $("#registerToggle").addEventListener("click", () => {
+    registering = !registering;
+    authForm.querySelector(".register-only").hidden = !registering;
+    authForm.querySelector("[type=submit]").textContent = registering ? "Create account" : "Log in";
+    $("#registerToggle").textContent = registering ? "I already have an account" : "Create provider account";
+    authForm.password.autocomplete = registering ? "new-password" : "current-password";
+  });
+  authForm.querySelector(".register-only").hidden = true;
+  authForm.addEventListener("submit", async (e) => {
+    e.preventDefault(); const status = authForm.querySelector(".form-status"); status.textContent = "";
+    try { const result = await providerRequest(`/api/auth/${registering ? "register" : "login"}`, { method: "POST", body: JSON.stringify({ email: authForm.email.value, password: authForm.password.value, username: authForm.username.value }) }); showProvider(result.provider); }
+    catch (error) { status.textContent = error.message; }
+  });
+  connectionForm.addEventListener("submit", async (e) => {
+    e.preventDefault(); const status = connectionForm.querySelector(".form-status"); status.textContent = "";
+    try { const result = await providerRequest("/api/providers/me/payment-connections", { method: "POST", body: JSON.stringify({ type: connectionForm.type.value, wallet_address: connectionForm.wallet_address.value, rpc_url: connectionForm.rpc_url.value, amount_lamports: Number(connectionForm.amount_lamports.value) }) }); showProvider(result.provider); status.textContent = "Payment connection saved."; }
+    catch (error) { status.textContent = error.message; }
+  });
+  $("#logoutButton").addEventListener("click", async () => { await providerRequest("/api/auth/logout", { method: "POST", body: "{}" }); showProvider(null); });
+  providerRequest("/api/auth/me", { method: "GET", headers: {} }).then((result) => showProvider(result.provider)).catch(() => {});
 
   /* ---------- demo receipts ---------- */
   document.querySelectorAll("[data-demo]").forEach((b) => {

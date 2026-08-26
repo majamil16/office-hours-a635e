@@ -24,7 +24,7 @@
     <a href="#pricing">Pricing</a>
     <a href="#specs">Spec</a>
   </nav>
-  <a class="btn btn-sm" href="#pricing">Set my rates</a>
+  <a class="btn btn-sm" href="#provider">Provider login</a>
 </header>
 
 <main id="top">
@@ -159,6 +159,36 @@
     <div class="road" id="road"></div>
   </section>
 
+  <section class="section" id="provider">
+    <h2 class="h2">Provider console</h2>
+    <p class="sub">Log in, connect how you collect, and checkout routes to that connection automatically.</p>
+    <div class="provider-grid">
+      <article class="card" id="authCard">
+        <h3>Provider login</h3>
+        <form class="provider-form" id="authForm">
+          <label>Email<input name="email" type="email" required autocomplete="email"></label>
+          <label>Password<input name="password" type="password" minlength="8" required autocomplete="current-password"></label>
+          <label class="register-only">Username<input name="username" autocomplete="username"></label>
+          <button class="btn" type="submit">Log in</button>
+          <button class="btn btn-ghost" id="registerToggle" type="button">Create provider account</button>
+          <p class="form-status" role="status"></p>
+        </form>
+      </article>
+      <article class="card" id="settingsCard" hidden>
+        <div class="provider-heading"><div><h3>Payment settings</h3><p class="modal-sub" id="providerIdentity"></p></div><button class="btn btn-ghost btn-sm2" id="logoutButton" type="button">Log out</button></div>
+        <form class="provider-form" id="connectionForm">
+          <label>Provider<select name="type"><option value="jelly">Jelly wallet</option></select></label>
+          <label>Wallet address<input name="wallet_address" required placeholder="Solana wallet address"></label>
+          <label>Solana RPC URL<input name="rpc_url" type="url" required placeholder="https://...helius-rpc.com"></label>
+          <label>Amount per checkout (lamports)<input name="amount_lamports" type="number" min="1" required value="1000000"></label>
+          <button class="btn" type="submit">Save payment connection</button>
+          <p class="form-status" role="status"></p>
+        </form>
+        <div id="connectionSummary"></div>
+      </article>
+    </div>
+  </section>
+
   <section class="closer">
     <h2>Open your office hours.</h2>
     <p>Pick your topics. Name your price.</p>
@@ -169,7 +199,7 @@
 
 <footer class="foot">
   <p><strong>Office Hours</strong> &mdash; a product spec for JellyJelly.</p>
-  <p class="muted">Host cards, topics, and prices come from the public firehose (<code>GET /v3/jelly/search</code>). Booking and payment flows are illustrative; the live version needs a backend.</p>
+  <p class="muted">Host cards and topics come from the public firehose. Provider accounts and payment connections are stored by the local backend; use production identity, secrets storage, and payment controls before launch.</p>
 </footer>
 
 <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden>
