@@ -32,7 +32,20 @@ function formatMessage(order) {
   ];
   if (order.slot_start) lines.push(`Slot: ${order.slot_start}`);
   lines.push("", "Question:", order.question);
-  lines.push("", "Reply to the asker on Jelly when you accept. Mark delivered in Office Hours after you post the answer jelly.");
+  lines.push("", "Reply to the asker on Jelly when you accept, or tell the OH bot if you decline. Mark delivered in Office Hours after you post the answer jelly.");
+  return lines.join("\n");
+}
+
+function formatDeclineMessage(order) {
+  const amount = `$${(order.price_cents / 100).toFixed(2)} ${order.currency || "USD"}`;
+  const lines = [
+    `Office Hours update`,
+    `Order: ${order.id}`,
+    `@${order.host_username} declined your ${order.kind} request.`,
+    `Your ${amount} payment to @${order.payment?.paid_to || "officehours"} is marked refunded (local stub until real pay-to-bot is wired).`,
+  ];
+  if (order.decline_reason) lines.push(`Reason: ${order.decline_reason}`);
+  lines.push("", "You can submit another request anytime on Office Hours.");
   return lines.join("\n");
 }
 
@@ -127,4 +140,4 @@ async function notifyHost(order, env = process.env) {
   return { ...delivery, text, host };
 }
 
-module.exports = { config, formatMessage, resolveHost, notifyHost };
+module.exports = { config, formatMessage, formatDeclineMessage, resolveHost, notifyHost };
