@@ -42,7 +42,7 @@ function formatDeclineMessage(order) {
     `Office Hours update`,
     `Order: ${order.id}`,
     `@${order.host_username} declined your ${order.kind} request.`,
-    `Your ${amount} payment to @${order.payment?.paid_to || "officehours"} is marked refunded (local stub until real pay-to-bot is wired).`,
+    `Your ${amount} has been refunded to your original payment method.`,
   ];
   if (order.decline_reason) lines.push(`Reason: ${order.decline_reason}`);
   lines.push("", "You can submit another request anytime on Office Hours.");

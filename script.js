@@ -159,12 +159,12 @@
     const localSlot = new Date(future.getTime() - future.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     openModal(`
       <h3 id="modalTitle">${title || (isLive ? "Book a live 1:1" : "Request a jelly")}</h3>
-      <p class="modal-sub">${host ? `with @${host} · ` : ""}${money(price)} ${isLive ? "· 30 min" : "· per question"} · paid to the Office Hours bot</p>
+      <p class="modal-sub">${host ? `with @${host} · ` : ""}${money(price)} ${isLive ? "· 30 min" : "· per question"}</p>
       <form class="checkout-form" data-kind="${kind}" data-host="${host || "maja"}" data-price="${price}">
         <label>Your Jelly username<input name="asker_username" required autocomplete="username" placeholder="@you"></label>
         ${isLive ? `<label>Choose a time<input name="slot_start" type="datetime-local" value="${localSlot}" required></label>` : ""}
-        <label>${isLive ? "What do you want to get out of it?" : "Your question"}<textarea name="question" maxlength="600" rows="4" required placeholder="Be specific — context gets a better answer."></textarea><small>Up to 600 characters. An operator using the OH bot account will message @${host || "the host"} on Jelly. They can accept or decline; declines are marked refunded.</small></label>
-        <button class="btn btn-block" type="submit">${isLive ? "Pay OH bot and book " : "Pay OH bot and request "}${money(price)}</button>
+        <label>${isLive ? "What do you want to get out of it?" : "Your question"}<textarea name="question" maxlength="600" rows="4" required placeholder="Be specific — context gets a better answer."></textarea><small>Up to 600 characters. Payment is held until ${isLive ? "your call completes" : "your answer lands"}.</small></label>
+        <button class="btn btn-block" type="submit">${isLive ? "Book and hold " : "Send request · hold "}${money(price)}</button>
         <p class="form-status" role="status" aria-live="polite"></p>
       </form>`);
     const form = document.querySelector(".checkout-form");
@@ -172,7 +172,7 @@
       e.preventDefault();
       const button = form.querySelector("button");
       const status = form.querySelector(".form-status");
-      button.disabled = true; status.textContent = "Taking payment for the Office Hours bot…";
+      button.disabled = true; status.textContent = "Securing your payment hold…";
       try {
         const payload = {
           kind: form.dataset.kind,
@@ -186,11 +186,8 @@
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "Checkout failed");
         const o = result.order;
-        const n = o.host_notification || {};
-        const notifyLine = n.status === "failed"
-          ? `NOTIFY   failed · ${n.error || "unknown error"}`
-          : `NOTIFY   ${n.status || "ok"} · ${n.channel || "dry-run"} → @${o.host_username}`;
-        $("#modalBody").innerHTML = `<h3 id="modalTitle">${isLive ? "Booking received" : "Request received"}</h3><p class="modal-sub">Paid to the Office Hours bot. An operator will reach out to @${o.host_username} on Jelly. If they decline, your payment is marked refunded.</p><div class="receipt" tabindex="0">${o.id}\nASKER    @${o.asker_username}\nHOST     @${o.host_username}\nAMOUNT   ${money(o.price_cents / 100)}\nSTATE    ${o.state}\nPAYMENT  ${o.payment.state} · @${o.payment.paid_to}\n${notifyLine}</div><p class="modal-note">POC: messaging is operator-assisted until Jelly exposes a bot DM API. Full asker/host dashboards come later.</p>`;
+        const due = isLive ? `We'll confirm your slot with @${o.host_username}.` : `@${o.host_username} has a few days to respond.`;
+        $("#modalBody").innerHTML = `<h3 id="modalTitle">${isLive ? "You're booked" : "Request sent"}</h3><p class="modal-sub">${due} ${isLive ? "" : "If they decline, your hold is released automatically."}</p><div class="receipt" tabindex="0">${o.id}\nHOST     @${o.host_username}\nAMOUNT   ${money(o.price_cents / 100)} held\nSTATUS   ${isLive ? "Confirmed" : "Awaiting response"}\nREFUND   ${isLive ? "Per cancellation policy" : "If host declines"}</div><p class="modal-note">We'll reach out on Jelly. You'll hear back at @${o.asker_username}.</p>`;
       } catch (error) { button.disabled = false; status.textContent = error.message; }
     });
   }
