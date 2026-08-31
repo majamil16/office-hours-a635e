@@ -6,6 +6,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { URL } = require("node:url");
 const jellyBot = require("./jelly/bot");
+const { integrationSpec, requireIntegration } = require("./integrations");
 
 const ROOT = __dirname;
 const PORT = Number(process.env.PORT || process.env.OH_PORT || 4173);
@@ -57,14 +58,55 @@ function requireOps(req, res) {
   return true;
 }
 function enrichOrder(order) {
+  const paymentReal = order.payment?.processor !== "oh_bot_local";
   return {
     ...order,
+    payment_real: paymentReal,
     asker_dm_text: order.state === "declined" ? jellyBot.formatDeclineMessage(order) : null,
     host_dm_text: order.host_notification?.text || jellyBot.formatMessage(order),
   };
 }
+function applyOrderAction(order, action, body = {}) {
+  if (action === "mark-dm-sent" || action === "mark-host-notified") {
+    order.host_dm_sent_at = new Date().toISOString();
+    return;
+  }
+  if (action === "accept") {
+    if (order.kind !== "jelly" || order.state !== "submitted") throw new Error("order cannot be accepted");
+    order.state = "accepted";
+    order.accepted_at = new Date().toISOString();
+    return;
+  }
+  if (action === "decline") {
+    if (order.kind !== "jelly" || order.state !== "submitted") throw new Error("order cannot be declined");
+    order.state = "declined";
+    order.declined_at = new Date().toISOString();
+    if (typeof body.reason === "string" && body.reason.trim()) {
+      order.decline_reason = body.reason.trim().slice(0, 400);
+    }
+    order.payment = { ...order.payment, state: "refunded", refunded_at: new Date().toISOString() };
+    order.asker_notification = {
+      status: "ready",
+      text: jellyBot.formatDeclineMessage(order),
+      at: new Date().toISOString(),
+    };
+    return;
+  }
+  if (action === "deliver") {
+    if (order.state !== "accepted" && order.state !== "confirmed") throw new Error("order is not deliverable");
+    order.state = "delivered";
+    order.payment = { ...order.payment, state: "captured" };
+    order.delivered_at = new Date().toISOString();
+  }
+}
 
 async function api(req, res, url) {
+  const baseUrl = `${url.protocol}//${url.host}`;
+
+  if (req.method === "GET" && url.pathname === "/api/integrations") {
+    return json(res, 200, integrationSpec(baseUrl));
+  }
+
   if (req.method === "GET" && url.pathname === "/api/health") {
     return json(res, 200, {
       ok: true,
@@ -72,8 +114,42 @@ async function api(req, res, url) {
       bot: OH_BOT_USERNAME,
       notify_mode: jellyBot.config().mode,
       ops_enabled: Boolean(OPS_TOKEN),
+      integration_api: "/api/integrations",
       time: new Date().toISOString(),
     });
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/v1/orders") {
+    if (!requireIntegration(req, res)) return;
+    const status = url.searchParams.get("status") || "open";
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 50)));
+    const orders = readOrders();
+    const open = new Set(["submitted", "confirmed", "accepted"]);
+    const filtered = status === "all" ? orders : orders.filter((o) => open.has(o.state));
+    return json(res, 200, { orders: filtered.slice(0, limit).map(enrichOrder), bot: OH_BOT_USERNAME });
+  }
+
+  const v1OrderMatch = url.pathname.match(/^\/api\/v1\/orders\/([^/]+)(?:\/(accept|decline|deliver|mark-host-notified))?$/);
+  if (v1OrderMatch) {
+    if (!requireIntegration(req, res)) return;
+    const orders = readOrders();
+    const order = orders.find((o) => o.id === v1OrderMatch[1]);
+    if (!order) return json(res, 404, { error: "order_not_found" });
+    if (req.method === "GET" && !v1OrderMatch[2]) {
+      return json(res, 200, { order: enrichOrder(order) });
+    }
+    if (req.method === "POST" && v1OrderMatch[2]) {
+      const body = await readBody(req).catch(() => ({}));
+      const action = v1OrderMatch[2] === "mark-host-notified" ? "mark-host-notified" : v1OrderMatch[2];
+      try {
+        applyOrderAction(order, action, body);
+        writeOrders(orders);
+        return json(res, 200, { order: enrichOrder(order) });
+      } catch (e) {
+        return json(res, 400, { error: e.message || "bad_request" });
+      }
+    }
+    return json(res, 405, { error: "method_not_allowed" });
   }
 
   if (req.method === "GET" && url.pathname === "/api/ops/orders") {
@@ -98,31 +174,7 @@ async function api(req, res, url) {
     if (!order) return json(res, 404, { error: "order_not_found" });
     const action = opsMatch[2];
     try {
-      if (action === "mark-dm-sent") {
-        order.host_dm_sent_at = new Date().toISOString();
-      } else if (action === "accept") {
-        if (order.kind !== "jelly" || order.state !== "submitted") throw new Error("order cannot be accepted");
-        order.state = "accepted";
-        order.accepted_at = new Date().toISOString();
-      } else if (action === "decline") {
-        if (order.kind !== "jelly" || order.state !== "submitted") throw new Error("order cannot be declined");
-        order.state = "declined";
-        order.declined_at = new Date().toISOString();
-        if (typeof body.reason === "string" && body.reason.trim()) {
-          order.decline_reason = body.reason.trim().slice(0, 400);
-        }
-        order.payment = { ...order.payment, state: "refunded", refunded_at: new Date().toISOString() };
-        order.asker_notification = {
-          status: "ready",
-          text: jellyBot.formatDeclineMessage(order),
-          at: new Date().toISOString(),
-        };
-      } else if (action === "deliver") {
-        if (order.state !== "accepted" && order.state !== "confirmed") throw new Error("order is not deliverable");
-        order.state = "delivered";
-        order.payment = { ...order.payment, state: "captured" };
-        order.delivered_at = new Date().toISOString();
-      }
+      applyOrderAction(order, action, body);
       writeOrders(orders);
       return json(res, 200, { order: enrichOrder(order) });
     } catch (e) {
@@ -189,24 +241,11 @@ async function api(req, res, url) {
     const order = orders.find((o) => o.id === match[2]);
     if (!order) return json(res, 404, { error: "order_not_found" });
     if (match[3] === "accept") {
-      if (order.kind !== "jelly" || order.state !== "submitted") throw new Error("order cannot be accepted");
-      order.state = "accepted"; order.accepted_at = new Date().toISOString();
+      applyOrderAction(order, "accept");
     } else if (match[3] === "decline") {
-      if (order.kind !== "jelly" || order.state !== "submitted") throw new Error("order cannot be declined");
-      order.state = "declined";
-      order.declined_at = new Date().toISOString();
-      if (typeof body.reason === "string" && body.reason.trim()) {
-        order.decline_reason = body.reason.trim().slice(0, 400);
-      }
-      order.payment = { ...order.payment, state: "refunded", refunded_at: new Date().toISOString() };
-      order.asker_notification = {
-        status: "ready",
-        text: jellyBot.formatDeclineMessage(order),
-        at: new Date().toISOString(),
-      };
+      applyOrderAction(order, "decline", body);
     } else {
-      if (order.state !== "accepted" && order.state !== "confirmed") throw new Error("order is not deliverable");
-      order.state = "delivered"; order.payment.state = "captured"; order.delivered_at = new Date().toISOString();
+      applyOrderAction(order, "deliver");
     }
     writeOrders(orders); return json(res, 200, { order: enrichOrder(order) });
   } catch (e) { return json(res, 400, { error: e.message || "bad_request" }); }

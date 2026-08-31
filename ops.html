@@ -6,11 +6,12 @@
   <title>Office Hours · Ops</title>
   <link rel="stylesheet" href="/styles.css">
   <style>
-    .ops { max-width: 920px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+    .ops { max-width: 960px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
     .ops h1 { font-size: 1.75rem; margin: 0 0 .35rem; }
-    .ops-sub { color: var(--muted, #666); margin: 0 0 1.5rem; }
-    .ops-login, .ops-card { border: 1px solid rgba(0,0,0,.12); border-radius: 12px; padding: 1rem 1.1rem; margin-bottom: 1rem; background: #fff; }
-    .ops-card h2 { font-size: 1.05rem; margin: 0 0 .5rem; }
+    .ops h2 { font-size: 1.1rem; margin: 0 0 .5rem; }
+    .ops-sub { color: var(--muted, #666); margin: 0 0 1rem; line-height: 1.5; }
+    .ops-panel, .ops-login, .ops-card { border: 1px solid rgba(0,0,0,.12); border-radius: 12px; padding: 1rem 1.1rem; margin-bottom: 1rem; background: #fff; }
+    .ops-card h3 { font-size: 1.05rem; margin: 0 0 .5rem; }
     .ops-meta { font-family: ui-monospace, monospace; font-size: .82rem; white-space: pre-wrap; background: #f6f6f4; padding: .75rem; border-radius: 8px; margin: .5rem 0; }
     .ops-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .75rem; }
     .ops-actions .btn { cursor: pointer; }
@@ -19,25 +20,46 @@
     .ops-badge { display: inline-block; font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; padding: .15rem .45rem; border-radius: 999px; background: #eee; }
     .ops-badge.is-submitted { background: #ffe8a3; }
     .ops-badge.is-accepted, .ops-badge.is-confirmed { background: #c8f0d4; }
+    .ops-badge.is-declined { background: #ffd4d4; }
     .ops-empty { color: var(--muted, #666); }
+    .ops-warn { background: #fff8e6; border-color: #e8d48a; }
+    .ops-steps { margin: 0; padding-left: 1.2rem; line-height: 1.6; }
+    .ops-steps li { margin-bottom: .35rem; }
+    .ops-grid { display: grid; gap: 1rem; }
+    @media (min-width: 720px) { .ops-grid { grid-template-columns: 1fr 1fr; } }
+    .ops-kv { font-family: ui-monospace, monospace; font-size: .78rem; word-break: break-all; }
+    .ops-step-num { font-weight: 600; color: #666; font-size: .85rem; text-transform: uppercase; letter-spacing: .04em; }
+    .ops-pay-stub { color: #9a6700; font-weight: 600; }
+    details.ops-api summary { cursor: pointer; font-weight: 600; }
   </style>
 </head>
 <body>
   <main class="ops">
     <div class="ops-top">
       <div>
-        <h1>Operator inbox</h1>
-        <p class="ops-sub">Act as the Office Hours Jelly service account. Copy a DM, send it on Jelly, then update the order.</p>
+        <h1>Operator console</h1>
+        <p class="ops-sub">Behind the scenes for <strong>@officehours</strong>. Site visitors only see a normal checkout — you run the Jelly side from here.</p>
       </div>
-      <a class="btn btn-ghost btn-sm" href="/">← Site</a>
+      <a class="btn btn-ghost btn-sm" href="/">← Public site</a>
     </div>
+
+    <section class="ops-panel ops-warn" id="playbook">
+      <h2>How this works (for you)</h2>
+      <ol class="ops-steps">
+        <li><strong>Asker submits on the site.</strong> We record the request and hold the amount (see payments below).</li>
+        <li><strong>You DM the host on Jelly</strong> as @officehours — copy the message below, send it, then click <em>Mark host notified</em>.</li>
+        <li><strong>Host accepts or declines.</strong> Accept in ops when they agree; Decline refunds the asker (in our system) and gives you asker DM text.</li>
+        <li><strong>Host delivers on Jelly.</strong> When the answer jelly is posted, click <em>Mark delivered</em> to capture payment.</li>
+      </ol>
+      <p class="ops-sub" style="margin-bottom:0"><span class="ops-pay-stub">Payments today:</span> <code>oh_bot_local</code> — state only, no real wallet charge yet (<a href="https://github.com/majamil16/office-hours-a635e/issues/18">#18</a>). Refunds/captures are bookkeeping until pay-to-bot ships.</p>
+    </section>
 
     <section class="ops-login" id="login">
       <form id="tokenForm">
         <label>OPS_TOKEN
-          <input name="token" type="password" autocomplete="current-password" required placeholder="Bearer token from env">
+          <input name="token" type="password" autocomplete="current-password" required placeholder="From Railway env or openssl rand -hex 24">
         </label>
-        <button class="btn" type="submit">Unlock inbox</button>
+        <button class="btn" type="submit">Unlock console</button>
         <p class="ops-status" id="loginStatus" role="status"></p>
       </form>
     </section>
@@ -48,8 +70,15 @@
         <button class="btn btn-ghost btn-sm" type="button" id="refresh">Refresh</button>
       </div>
       <div id="list"></div>
-      <p class="ops-empty" id="empty" hidden>No open orders.</p>
+      <p class="ops-empty" id="empty" hidden>No open requests right now.</p>
       <p class="ops-status" id="inboxStatus" role="status"></p>
+
+      <details class="ops-panel ops-api" id="apiDocs">
+        <summary>Integration API (for Jelly team)</summary>
+        <p class="ops-sub">Machine-readable spec: <a id="apiSpecLink" href="/api/integrations" target="_blank" rel="noopener">GET /api/integrations</a></p>
+        <p class="ops-sub">Bearer token: <code>JELLY_INTEGRATION_TOKEN</code> (or same as <code>OPS_TOKEN</code>). Outbound webhooks: set <code>JELLY_NOTIFY_MODE=webhook</code> + <code>JELLY_NOTIFY_WEBHOOK_URL</code>.</p>
+        <pre class="ops-meta" id="apiPreview">Loading…</pre>
+      </details>
     </section>
   </main>
   <script src="/ops.js"></script>
